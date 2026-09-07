@@ -1,22 +1,855 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>File Transfer</title>
-    <meta name="description" content="Minimal, elegant, and responsive single-page file sharing and transfer web application." />
-    <meta property="og:title" content="File Transfer" />
-    <meta property="og:description" content="Minimal, elegant, and responsive single-page file sharing and transfer web application." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="/assets/index-DcmkYxAi.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CirvcDOq.css">
-  </head>
-  <body class="antialiased selection:bg-neutral-800 selection:text-white dark:selection:bg-white dark:selection:text-neutral-950">
-    <div id="root"></div>
-  </body>
-</html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickShare - P2P File Transfer</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0a0a;--surface:#141414;--surface2:#1e1e1e;--border:#2a2a2a;
+    --text:#e5e5e5;--text2:#a3a3a3;--accent:#3b82f6;--accent2:#2563eb;
+    --green:#22c55e;--red:#ef4444;--amber:#eab308;--radius:12px;
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg);color:var(--text);min-height:100vh;display:flex;
+    align-items:center;justify-content:center;padding:20px}
+  .container{width:100%;max-width:520px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:32px;margin-bottom:16px}
+  h1{font-size:28px;font-weight:700;margin-bottom:4px;letter-spacing:-0.5px}
+  .subtitle{color:var(--text2);font-size:14px;margin-bottom:28px}
+  .dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:48px 24px;
+    text-align:center;cursor:pointer;transition:all .2s;position:relative}
+  .dropzone:hover,.dropzone.dragover{border-color:var(--accent);background:rgba(59,130,246,.05)}
+  .dropzone-icon{font-size:40px;margin-bottom:12px;opacity:.6}
+  .dropzone-text{font-size:15px;color:var(--text2);line-height:1.5}
+  .dropzone-text strong{color:var(--text);cursor:pointer}
+  .dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .file-list{margin:16px 0;display:flex;flex-direction:column;gap:8px}
+  .file-item{display:flex;align-items:center;gap:12px;padding:12px 16px;
+    background:var(--surface2);border-radius:8px;font-size:14px}
+  .file-icon{font-size:20px;flex-shrink:0}
+  .file-info{flex:1;min-width:0}
+  .file-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .file-size{color:var(--text2);font-size:12px;margin-top:2px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:12px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;
+    cursor:pointer;transition:all .15s;width:100%;font-family:inherit}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent2)}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+  .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+  .btn-secondary:hover{background:var(--border)}
+  .btn-danger{background:var(--red);color:#fff}
+  .btn-danger:hover{background:#dc2626}
+  .share-box{margin-top:16px}
+  .share-label{font-size:12px;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  .share-url{display:flex;gap:8px;align-items:center}
+  .share-url input{flex:1;background:var(--surface2);border:1px solid var(--border);
+    border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;
+    font-family:'SF Mono',Monaco,Consolas,monospace;outline:none}
+  .share-url input:focus{border-color:var(--accent)}
+  .copy-btn{padding:10px 16px;background:var(--surface2);border:1px solid var(--border);
+    border-radius:8px;color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap;font-weight:500}
+  .copy-btn:hover{background:var(--border)}
+  .copy-btn.copied{background:var(--green);color:#fff;border-color:var(--green)}
+  .progress-container{margin:20px 0}
+  .progress-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .progress-title{font-size:14px;font-weight:500}
+  .progress-stats{font-size:12px;color:var(--text2)}
+  .progress-bar-bg{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden}
+  .progress-bar{height:100%;background:var(--accent);border-radius:3px;transition:width .3s;width:0%}
+  .progress-bar.done{background:var(--green)}
+  .speed-info{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--text2)}
+  .status{display:flex;align-items:center;gap:8px;margin:16px 0;font-size:14px;color:var(--text2)}
+  .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .status-dot.connecting{background:var(--amber);animation:pulse 1.5s infinite}
+  .status-dot.connected{background:var(--green)}
+  .status-dot.error{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .hidden{display:none!important}
+  .mt-16{margin-top:16px}
+  .text-center{text-align:center}
+  .complete-icon{font-size:48px;margin-bottom:12px}
+  .complete-title{font-size:20px;font-weight:700;margin-bottom:4px}
+  .complete-sub{color:var(--text2);font-size:14px}
+  .divider{height:1px;background:var(--border);margin:20px 0}
+  .back-btn{background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;
+    padding:0;margin-bottom:16px;font-family:inherit}
+  .back-btn:hover{color:var(--text)}
+  .engine-badge{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+    padding:8px 12px;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:8px;margin:16px 0}
+  .engine-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- SENDER VIEW -->
+  <div id="senderView">
+    <div class="card">
+      <h1>QuickShare</h1>
+      <p class="subtitle">Send files peer-to-peer. No server, no limits.</p>
 
+      <div id="senderDrop">
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-icon">&#128228;</div>
+          <div class="dropzone-text">Drop files here or <strong>browse</strong></div>
+          <input type="file" id="fileInput" multiple>
+        </div>
+      </div>
+
+      <div id="senderFiles" class="hidden"></div>
+
+      <div id="senderActions" class="hidden mt-16">
+        <button class="btn btn-primary" id="uploadBtn" onclick="startSender()">Generate Share Link</button>
+      </div>
+
+      <div id="senderSharing" class="hidden">
+        <div class="divider"></div>
+        <div class="status">
+          <div class="status-dot connected"></div>
+          <span>Waiting for receiver to connect...</span>
+        </div>
+        <div class="share-box">
+          <div class="share-label">Share this link</div>
+          <div class="share-url">
+            <input type="text" id="shareUrl" readonly>
+            <button class="copy-btn" id="copyBtn" onclick="copyLink()">Copy</button>
+          </div>
+        </div>
+        <div id="senderProgress" class="hidden">
+          <div class="progress-container">
+            <div class="progress-header">
+              <div class="progress-title" id="senderProgressTitle">Sending...</div>
+              <div class="progress-stats" id="senderProgressStats">0%</div>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar" id="senderProgressBar"></div>
+            </div>
+            <div class="speed-info">
+              <span id="senderSpeed">--</span>
+              <span id="senderETA">--</span>
+            </div>
+          </div>
+        </div>
+        <div id="senderDone" class="hidden text-center mt-16">
+          <div class="complete-icon">&#9989;</div>
+          <div class="complete-title">Transfer Complete</div>
+          <div class="complete-sub" id="senderDoneText">File sent successfully.</div>
+          <button class="btn btn-secondary mt-16" onclick="resetSender()">Send Another</button>
+        </div>
+        <button class="btn btn-danger mt-16" id="stopBtn" onclick="stopSender()">Stop Sharing</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECEIVER VIEW -->
+  <div id="receiverView" class="hidden">
+    <div class="card">
+      <div id="receiverConnecting">
+        <h1>QuickShare</h1>
+        <p class="subtitle">Connecting to sender...</p>
+        <div class="status">
+          <div class="status-dot connecting"></div>
+          <span id="receiverStatus">Establishing peer connection</span>
+        </div>
+      </div>
+
+      <div id="receiverReady" class="hidden">
+        <button class="back-btn" onclick="history.back()">&larr; Back</button>
+        <h1>Receive File</h1>
+        <p class="subtitle">Sender is ready. Click download to start.</p>
+        <div id="receiverFileList"></div>
+        <button class="btn btn-primary mt-16" onclick="startDownload()">Download</button>
+      </div>
+
+      <div id="receiverDownloading" class="hidden">
+        <div id="receiverFileName" style="font-size:14px;font-weight:600;margin-bottom:4px"></div>
+        <div id="receiverFileSize" style="font-size:12px;color:var(--text2);margin-bottom:16px"></div>
+        <div class="engine-badge" id="receiverEngine"><span class="dot"></span><span id="receiverEngineText">Streaming to disk</span></div>
+        <div class="progress-container">
+          <div class="progress-header">
+            <div class="progress-title">Downloading</div>
+            <div class="progress-stats" id="receiverProgressStats">0%</div>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar" id="receiverProgressBar"></div>
+          </div>
+          <div class="speed-info">
+            <span id="receiverSpeed">--</span>
+            <span id="receiverETA">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="receiverComplete" class="hidden text-center">
+        <div class="complete-icon">&#9989;</div>
+        <div class="complete-title">Download Complete</div>
+        <div class="complete-sub" id="receiverDoneText">File saved.</div>
+        <button class="btn btn-secondary mt-16" onclick="resetReceiver()">Share Another</button>
+      </div>
+
+      <div id="receiverError" class="hidden">
+        <div style="font-size:48px;margin-bottom:12px">&#9888;&#65039;</div>
+        <div class="complete-title">Connection Failed</div>
+        <div class="complete-sub" id="receiverErrorText" style="margin:8px 0 16px"></div>
+        <button class="btn btn-secondary" onclick="resetReceiver()">Try Again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CHUNK_SIZE = 64 * 1024;
+const HIGH_WATERMARK = 4 * 1024 * 1024;
+const LOW_WATERMARK = 512 * 1024;
+
+let selectedFiles = [];
+let peer = null;
+let currentConn = null;
+let isSender = false;
+let senderActive = false;
+let senderAckHandler = null;
+
+// --- URL ROUTING ---
+function getPeerIDFromURL() {
+  const hash = window.location.hash.slice(1);
+  if (hash) return decodeURIComponent(hash);
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id');
+}
+
+// --- UTILITY ---
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+
+function formatSpeed(bps) {
+  if (!bps || bps < 1024) return '--';
+  if (bps >= 1048576) return (bps/1048576).toFixed(1) + ' MB/s';
+  return Math.round(bps/1024) + ' KB/s';
+}
+
+function formatETA(s) {
+  if (!s || !isFinite(s)) return '--';
+  if (s < 60) return Math.round(s) + 's';
+  return Math.floor(s/60) + 'm ' + Math.round(s%60) + 's';
+}
+
+// --- FILE HANDLING (SENDER) ---
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const senderFiles = document.getElementById('senderFiles');
+const senderActions = document.getElementById('senderActions');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+function handleFiles(fileList) {
+  selectedFiles = Array.from(fileList);
+  renderFileList();
+}
+
+function renderFileList() {
+  if (!selectedFiles.length) {
+    senderFiles.classList.add('hidden');
+    senderActions.classList.add('hidden');
+    return;
+  }
+  senderFiles.classList.remove('hidden');
+  senderActions.classList.remove('hidden');
+  document.getElementById('senderDrop').classList.add('hidden');
+
+  const totalSize = selectedFiles.reduce((s,f) => s+f.size, 0);
+  senderFiles.innerHTML = `
+    <div class="file-list">
+      ${selectedFiles.map(f => `
+        <div class="file-item">
+          <div class="file-icon">&#128196;</div>
+          <div class="file-info">
+            <div class="file-name">${f.name}</div>
+            <div class="file-size">${formatBytes(f.size)}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div style="font-size:12px;color:var(--text2);text-align:right;margin-top:4px">
+      ${selectedFiles.length} file${selectedFiles.length>1?'s':''} &middot; ${formatBytes(totalSize)} total
+    </div>
+  `;
+}
+
+// --- SENDER ---
+function startSender() {
+  isSender = true;
+  senderActive = true;
+  currentConn = null;
+  senderAckHandler = null;
+
+  document.getElementById('senderDrop').classList.add('hidden');
+  document.getElementById('senderActions').classList.add('hidden');
+  document.getElementById('uploadBtn').disabled = true;
+
+  peer = new Peer({
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    }
+  });
+
+  peer.on('open', id => {
+    const url = window.location.origin + window.location.pathname + '#' + id;
+    document.getElementById('shareUrl').value = url;
+    document.getElementById('senderSharing').classList.remove('hidden');
+  });
+
+  peer.on('connection', conn => {
+    if (!senderActive) { conn.close(); return; }
+    currentConn = conn;
+    handleReceiverConnection(conn);
+  });
+
+  peer.on('error', err => {
+    console.error('Peer error:', err);
+  });
+}
+
+function handleReceiverConnection(conn) {
+  conn.on('open', () => {
+    const status = document.querySelector('#senderSharing .status span');
+    if (status) status.textContent = 'Receiver connected. Sending file info...';
+
+    conn.send({
+      type: 'info',
+      files: selectedFiles.map(f => ({ name: f.name, size: f.size, type: f.type }))
+    });
+  });
+
+  conn.on('data', data => {
+    if (data.type === 'start') {
+      sendFile(conn, data.fileName, data.offset || 0);
+    } else if (data.type === 'chunkAck' && senderAckHandler) {
+      senderAckHandler(data);
+    }
+  });
+
+  conn.on('close', () => {
+    if (senderActive) {
+      const status = document.querySelector('#senderSharing .status span');
+      if (status) status.textContent = 'Receiver disconnected. Waiting for new connection...';
+    }
+  });
+
+  conn.on('error', err => {
+    console.error('Conn error:', err);
+  });
+}
+
+async function sendFile(conn, fileName, offset) {
+  const file = selectedFiles.find(f => f.name === fileName);
+  if (!file) return;
+
+  const dc = conn.dataChannel;
+  const progressDiv = document.getElementById('senderProgress');
+  const progressBar = document.getElementById('senderProgressBar');
+  const progressStats = document.getElementById('senderProgressStats');
+  const speedEl = document.getElementById('senderSpeed');
+  const etaEl = document.getElementById('senderETA');
+  const titleEl = document.getElementById('senderProgressTitle');
+  const stopBtn = document.getElementById('stopBtn');
+
+  progressDiv.classList.remove('hidden');
+  titleEl.textContent = 'Sending ' + fileName;
+  stopBtn.classList.add('hidden');
+
+  let nextOffset = offset;
+  let ackedBytes = offset;
+  let lastTime = Date.now();
+  let lastBytes = offset;
+  let emaSpeed = null;
+  let emaSamples = 0;
+  let finalChunkSent = false;
+  let done = false;
+
+  senderAckHandler = (ack) => {
+    if (ack.fileName === fileName) {
+      ackedBytes = Math.min(ackedBytes + (ack.bytesReceived || 0), file.size);
+    }
+  };
+
+  const progressInterval = setInterval(() => {
+    if (done) { clearInterval(progressInterval); return; }
+    const now = Date.now();
+    const elapsed = (now - lastTime) / 1000;
+    const delta = ackedBytes - lastBytes;
+    lastBytes = ackedBytes;
+    lastTime = now;
+
+    if (elapsed > 0 && delta >= 0) {
+      const instant = delta / elapsed;
+      emaSpeed = emaSpeed === null ? instant : 0.4 * instant + 0.6 * emaSpeed;
+      emaSamples++;
+    }
+
+    const pct = file.size > 0 ? Math.min(ackedBytes / file.size, 1) : 0;
+    progressBar.style.width = (pct * 100) + '%';
+    progressStats.textContent = Math.round(pct * 100) + '% ' + formatBytes(ackedBytes) + ' / ' + formatBytes(file.size);
+    speedEl.textContent = emaSamples >= 2 ? formatSpeed(emaSpeed) : 'Starting...';
+
+    if (emaSamples >= 2 && emaSpeed > 1024) {
+      const remaining = file.size - ackedBytes;
+      etaEl.textContent = 'ETA ' + formatETA(remaining / emaSpeed);
+    }
+  }, 250);
+
+  const cancel = () => {
+    senderAckHandler = null;
+  };
+
+  while (nextOffset < file.size) {
+    if (!conn.open || !senderActive) {
+      clearInterval(progressInterval);
+      cancel();
+      return;
+    }
+
+    if (dc.bufferedAmount >= HIGH_WATERMARK) {
+      await new Promise(resolve => {
+        const handler = () => { dc.removeEventListener('bufferedamountlow', handler); resolve(); };
+        dc.bufferedAmountLowThreshold = LOW_WATERMARK;
+        dc.addEventListener('bufferedamountlow', handler, { once: true });
+      });
+      continue;
+    }
+
+    const end = Math.min(file.size, nextOffset + CHUNK_SIZE);
+    const chunk = file.slice(nextOffset, end);
+    const buffer = await chunk.arrayBuffer();
+    const final = end === file.size;
+
+    try {
+      conn.send({
+        type: 'chunk',
+        fileName: fileName,
+        offset: nextOffset,
+        bytes: buffer,
+        final: final
+      });
+    } catch (e) {
+      console.error('Send error:', e);
+      clearInterval(progressInterval);
+      cancel();
+      return;
+    }
+
+    nextOffset = end;
+    if (final) finalChunkSent = true;
+  }
+
+  // Wait for all chunks to be acknowledged by the receiver (accurate completion)
+  while (senderActive && ackedBytes < file.size && conn.open) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  done = true;
+  clearInterval(progressInterval);
+  cancel();
+  progressBar.style.width = '100%';
+  progressBar.classList.add('done');
+  progressStats.textContent = '100% - Complete';
+  speedEl.textContent = '';
+  etaEl.textContent = '';
+
+  document.getElementById('senderDone').classList.remove('hidden');
+  document.getElementById('senderDoneText').textContent = fileName + ' received by receiver.';
+
+  setTimeout(() => {
+    document.getElementById('senderProgress').classList.add('hidden');
+    progressBar.classList.remove('done');
+    stopBtn.classList.remove('hidden');
+  }, 2000);
+}
+
+function copyLink() {
+  const input = document.getElementById('shareUrl');
+  const btn = document.getElementById('copyBtn');
+  navigator.clipboard.writeText(input.value).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function stopSender() {
+  senderActive = false;
+  if (currentConn) currentConn.close();
+  if (peer) peer.destroy();
+  resetSender();
+}
+
+function resetSender() {
+  selectedFiles = [];
+  if (peer) { try { peer.destroy(); } catch(e){} }
+  peer = null;
+  currentConn = null;
+  isSender = false;
+  senderActive = false;
+  senderAckHandler = null;
+
+  document.getElementById('senderSharing').classList.add('hidden');
+  document.getElementById('senderDrop').classList.remove('hidden');
+  document.getElementById('senderFiles').classList.add('hidden');
+  document.getElementById('senderActions').classList.add('hidden');
+  document.getElementById('senderProgress').classList.add('hidden');
+  document.getElementById('senderDone').classList.add('hidden');
+  document.getElementById('uploadBtn').disabled = false;
+  document.getElementById('senderProgressBar').style.width = '0%';
+  document.getElementById('senderProgressBar').classList.remove('done');
+  fileInput.value = '';
+
+  const status = document.querySelector('#senderSharing .status span');
+  if (status) status.textContent = 'Waiting for receiver to connect...';
+}
+
+// --- RECEIVER ---
+let writer = null;          // { sink, handle, name, type, expected, bytesWritten, done }
+let writeChain = Promise.resolve();
+let currentReceiverFile = null;
+let receivedBytes = 0;
+let receiverEmaSpeed = null;
+let receiverEmaSamples = 0;
+let receiverLastBytes = 0;
+let receiverLastTime = Date.now();
+
+// Try to open an OPFS FileSystemWritableFileStream for streaming to disk.
+// Falls back to null (in-memory assembly) when unavailable.
+async function tryOpenOPFS(file) {
+  try {
+    if (
+      typeof navigator === 'undefined' ||
+      typeof navigator.storage === 'undefined' ||
+      typeof navigator.storage.getDirectory !== 'function'
+    ) {
+      return null;
+    }
+    const root = await navigator.storage.getDirectory();
+    const safeName = String(file.name).replace(/[\\/]/g, '__').replace(/^_+/, '');
+    const handle = await root.getFileHandle(safeName, { create: true });
+    if (typeof handle.createWritable !== 'function') return null;
+    const sink = await handle.createWritable();
+    if (sink) {
+      return { handle, sink };
+    }
+    return null;
+  } catch (e) {
+    console.warn('[Receiver] OPFS unavailable, using memory assembly:', e);
+    return null;
+  }
+}
+
+function startDownload() {
+  if (!currentConn) return;
+
+  document.getElementById('receiverReady').classList.add('hidden');
+  document.getElementById('receiverDownloading').classList.remove('hidden');
+
+  const file = currentReceiverFile;
+  if (!file) { receiverError('No file info received.'); return; }
+
+  document.getElementById('receiverFileName').textContent = file.name;
+  document.getElementById('receiverFileSize').textContent = formatBytes(file.size);
+
+  receivedBytes = 0;
+  receiverEmaSpeed = null;
+  receiverEmaSamples = 0;
+  receiverLastBytes = 0;
+  receiverLastTime = Date.now();
+  window._chunkMap = {};
+
+  writer = {
+    name: file.name,
+    type: file.type || 'application/octet-stream',
+    expected: file.size,
+    bytesWritten: 0,
+    done: false,
+    sink: null
+  };
+
+  tryOpenOPFS(file).then(opfs => {
+    if (opfs) {
+      writer.sink = opfs.sink;
+      writer.handle = opfs.handle;
+      document.getElementById('receiverEngineText').textContent = 'Streaming to disk (OPFS)';
+    } else {
+      document.getElementById('receiverEngineText').textContent = 'Buffering in memory (OPFS unavailable)';
+    }
+    writeChain = Promise.resolve();
+    currentConn.send({ type: 'start', fileName: file.name, offset: 0 });
+  });
+}
+
+function handleChunk(data) {
+  if (!data || data.type !== 'chunk') return;
+  if (!writer || writer.done) return;
+
+  const bytes = data.bytes instanceof Uint8Array
+    ? data.bytes
+    : new Uint8Array(data.bytes);
+
+  writeChain = writeChain.then(async () => {
+    if (writer.done) return;
+
+    if (data.offset !== writer.bytesWritten) {
+      // Ordered reliable channel — an offset mismatch means data was lost.
+      console.warn('[Receiver] unexpected chunk offset', data.offset, 'expected', writer.bytesWritten);
+      return;
+    }
+
+    if (writer.sink) {
+      await writer.sink.write({
+        type: 'write',
+        position: writer.bytesWritten,
+        data: bytes
+      });
+    } else {
+      window._chunkMap[writer.bytesWritten] = bytes;
+    }
+
+    writer.bytesWritten += bytes.byteLength;
+    receivedBytes = writer.bytesWritten;
+    updateReceiverProgress();
+
+    if (currentConn && currentConn.open) {
+      currentConn.send({
+        type: 'chunkAck',
+        fileName: writer.name,
+        offset: data.offset,
+        bytesReceived: bytes.byteLength
+      });
+    }
+
+    if (data.final) {
+      await finalizeWriter(writer);
+    }
+  }).catch(err => {
+    console.error('[Receiver] write error:', err);
+    receiverError('Failed to write file: ' + err.message);
+  });
+}
+
+async function finalizeWriter(w) {
+  if (w.done) return;
+  w.done = true;
+
+  let blob;
+  if (w.sink) {
+    // Truncate to exact size then close — ensures no stray bytes.
+    if (w.bytesWritten !== w.expected) {
+      throw new Error('Size mismatch: wrote ' + w.bytesWritten + ' expected ' + w.expected);
+    }
+    await w.sink.write({ type: 'truncate', size: w.expected });
+    await w.sink.close();
+    const f = await w.handle.getFile();
+    blob = f;
+  } else {
+    const chunkMap = window._chunkMap || {};
+    const sortedOffsets = Object.keys(chunkMap).map(Number).sort((a,b) => a - b);
+    const parts = sortedOffsets.map(o => new Blob([chunkMap[o]]));
+    blob = new Blob(parts, { type: w.type });
+  }
+
+  triggerDownload(blob, w.name);
+  window._chunkMap = {};
+
+  const progressBar = document.getElementById('receiverProgressBar');
+  progressBar.classList.add('done');
+
+  setTimeout(() => {
+    document.getElementById('receiverDownloading').classList.add('hidden');
+    document.getElementById('receiverComplete').classList.remove('hidden');
+    document.getElementById('receiverDoneText').textContent = w.name + ' saved to your device.';
+  }, 500);
+}
+
+function triggerDownload(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function updateReceiverProgress() {
+  const file = writer;
+  if (!file) return;
+
+  const progressBar = document.getElementById('receiverProgressBar');
+  const progressStats = document.getElementById('receiverProgressStats');
+  const speedEl = document.getElementById('receiverSpeed');
+  const etaEl = document.getElementById('receiverETA');
+
+  const pct = file.expected > 0 ? Math.min(receivedBytes / file.expected, 1) : 0;
+  progressBar.style.width = (pct * 100) + '%';
+  progressStats.textContent = Math.round(pct * 100) + '%';
+
+  const now = Date.now();
+  const elapsed = (now - receiverLastTime) / 1000;
+  const delta = receivedBytes - receiverLastBytes;
+  receiverLastBytes = receivedBytes;
+  receiverLastTime = now;
+
+  if (elapsed > 0 && delta >= 0) {
+    const instant = delta / elapsed;
+    receiverEmaSpeed = receiverEmaSpeed === null ? instant : 0.4 * instant + 0.6 * receiverEmaSpeed;
+    receiverEmaSamples++;
+  }
+
+  speedEl.textContent = receiverEmaSamples >= 2 ? formatSpeed(receiverEmaSpeed) : 'Starting...';
+  if (receiverEmaSamples >= 2 && receiverEmaSpeed > 1024) {
+    const remaining = file.expected - receivedBytes;
+    etaEl.textContent = 'ETA ' + formatETA(remaining / receiverEmaSpeed);
+  }
+}
+
+function receiverError(msg) {
+  cleanReceiverResources();
+  document.getElementById('receiverConnecting').classList.add('hidden');
+  document.getElementById('receiverReady').classList.add('hidden');
+  document.getElementById('receiverDownloading').classList.add('hidden');
+  document.getElementById('receiverError').classList.remove('hidden');
+  document.getElementById('receiverErrorText').textContent = msg;
+}
+
+async function cleanReceiverResources() {
+  if (writer && writer.sink) {
+    try { await writer.sink.close(); } catch (e) { /* ignore */ }
+  }
+  writer = null;
+  writeChain = Promise.resolve();
+}
+
+function initReceiver(uploaderPeerID) {
+  document.getElementById('receiverView').classList.remove('hidden');
+  document.getElementById('senderView').classList.add('hidden');
+  isSender = false;
+
+  peer = new Peer({
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    }
+  });
+
+  peer.on('open', () => {
+    const statusEl = document.getElementById('receiverStatus');
+    statusEl.textContent = 'Connecting to sender...';
+
+    const conn = peer.connect(uploaderPeerID, { reliable: true });
+    currentConn = conn;
+
+    conn.on('open', () => {
+      statusEl.textContent = 'Connected. Waiting for file info...';
+      conn.send({ type: 'requestInfo' });
+    });
+
+    conn.on('data', data => {
+      if (data.type === 'info') {
+        handleReceiverInfo(data.files);
+      } else if (data.type === 'chunk') {
+        handleChunk(data);
+      }
+    });
+
+    conn.on('close', () => {
+      if (writer && !writer.done) {
+        receiverError('Connection lost. Sender may have closed their browser.');
+      }
+    });
+
+    conn.on('error', err => {
+      receiverError('Connection error: ' + err.message);
+    });
+  });
+
+  peer.on('error', err => {
+    receiverError('Failed to connect: ' + err.message);
+  });
+}
+
+function handleReceiverInfo(files) {
+  if (!files || !files.length) return;
+  currentReceiverFile = files[0];
+  receivedBytes = 0;
+  window._chunkMap = {};
+
+  document.getElementById('receiverConnecting').classList.add('hidden');
+  document.getElementById('receiverReady').classList.remove('hidden');
+  document.getElementById('receiverFileList').innerHTML = `
+    <div class="file-item">
+      <div class="file-icon">&#128196;</div>
+      <div class="file-info">
+        <div class="file-name">${files[0].name}</div>
+        <div class="file-size">${formatBytes(files[0].size)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function resetReceiver() {
+  cleanReceiverResources();
+  if (peer) { try { peer.destroy(); } catch(e){} }
+  peer = null;
+  currentConn = null;
+  currentReceiverFile = null;
+  receivedBytes = 0;
+  window._chunkMap = {};
+  receiverEmaSpeed = null;
+  receiverEmaSamples = 0;
+
+  document.getElementById('receiverView').classList.add('hidden');
+  document.getElementById('senderView').classList.remove('hidden');
+  document.getElementById('receiverConnecting').classList.remove('hidden');
+  document.getElementById('receiverReady').classList.add('hidden');
+  document.getElementById('receiverDownloading').classList.add('hidden');
+  document.getElementById('receiverComplete').classList.add('hidden');
+  document.getElementById('receiverError').classList.add('hidden');
+  document.getElementById('receiverProgressBar').style.width = '0%';
+  document.getElementById('receiverProgressBar').classList.remove('done');
+
+  window.location.hash = '';
+  window.location.search = '';
+}
+
+// --- INIT ---
+window.addEventListener('DOMContentLoaded', () => {
+  const peerID = getPeerIDFromURL();
+  if (peerID) {
+    initReceiver(peerID);
+  }
+});
+
+window.addEventListener('hashchange', () => {
+  const peerID = getPeerIDFromURL();
+  if (peerID && !isSender) {
+    initReceiver(peerID);
+  }
+});
+</script>
+</body>
+</html>
