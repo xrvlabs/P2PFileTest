@@ -198,7 +198,7 @@
         <div style="font-size:48px;margin-bottom:12px">&#9888;&#65039;</div>
         <div class="complete-title">Connection Failed</div>
         <div class="complete-sub" id="receiverErrorText" style="margin:8px 0 16px"></div>
-        <button class="btn btn-secondary" onclick="resetReceiver()">Try Again</button>
+        <button class="btn btn-secondary" onclick="retryReceiver()">Retry Connection</button>
       </div>
     </div>
   </div>
@@ -223,6 +223,26 @@ function logEvent(msg) {
   while (panel.children.length > 30) panel.removeChild(panel.firstChild);
   panel.scrollTop = panel.scrollHeight;
 }
+
+// ICE: Google STUN (direct path) + Metered open relay TURN (fallback when
+// both peers are behind symmetric NAT and direct P2P fails).
+const ICE_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turns:openrelay.metered.ca:443'
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ]
+  }
+};
 
 let selectedFiles = [];
 let peer = null;
@@ -321,12 +341,7 @@ function startSender() {
 
   peer = new Peer({
     debug: 2,
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    }
+    ...ICE_CONFIG
   });
 
   logEvent('Sender: PeerJS server = ' + (peer.options?.host || '0.peerjs.com'));
@@ -569,6 +584,8 @@ let receiverEmaSpeed = null;
 let receiverEmaSamples = 0;
 let receiverLastBytes = 0;
 let receiverLastTime = Date.now();
+let receiverTargetID = null;
+let receiverRetries = 0;
 
 // Try to open an OPFS FileSystemWritableFileStream for streaming to disk.
 // Falls back to null (in-memory assembly) when unavailable.
@@ -762,6 +779,18 @@ function updateReceiverProgress() {
   }
 }
 
+function retryReceiver() {
+  if (!receiverTargetID) return;
+  logEvent('Receiver: manual retry -> ' + receiverTargetID);
+  document.getElementById('receiverError').classList.add('hidden');
+  document.getElementById('receiverConnecting').classList.remove('hidden');
+  document.getElementById('receiverStatus').textContent = 'Establishing peer connection';
+  cleanReceiverResources();
+  if (peer) { try { peer.destroy(); } catch(e){} }
+  peer = null;
+  initReceiver(receiverTargetID);
+}
+
 function receiverError(msg) {
   cleanReceiverResources();
   document.getElementById('receiverConnecting').classList.add('hidden');
@@ -780,21 +809,19 @@ async function cleanReceiverResources() {
 }
 
 function initReceiver(uploaderPeerID) {
+  receiverTargetID = uploaderPeerID;
+  receiverRetries = 0;
   document.getElementById('receiverView').classList.remove('hidden');
   document.getElementById('senderView').classList.add('hidden');
   isSender = false;
 
   logEvent('Receiver: target peer = ' + uploaderPeerID);
   logEvent('Receiver: URL hash = "' + window.location.hash + '"');
+  logEvent('Receiver: ICE = STUN + TURN fallback (openrelay.metered.ca)');
 
   peer = new Peer({
     debug: 2,
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    }
+    ...ICE_CONFIG
   });
 
   logEvent('Receiver: PeerJS server = ' + (peer.options?.host || '0.peerjs.com'));
@@ -837,7 +864,17 @@ function initReceiver(uploaderPeerID) {
 
   peer.on('error', err => {
     logEvent('Receiver: PEER ERROR type=' + err.type + ' msg=' + err.message);
-    receiverError('Failed to connect: ' + err.message);
+    if (err.type === 'peer-unavailable' && receiverRetries < 3) {
+      receiverRetries++;
+      logEvent('Receiver: sender peer unavailable, retry ' + receiverRetries + '/3 in 1.5s...');
+      setTimeout(() => {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+        initReceiver(uploaderPeerID);
+      }, 1500);
+    } else {
+      receiverError('Failed to connect: ' + err.message);
+    }
   });
 
   peer.on('disconnected', () => {
