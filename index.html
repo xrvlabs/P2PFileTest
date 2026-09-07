@@ -78,6 +78,10 @@
   .back-btn{background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;
     padding:0;margin-bottom:16px;font-family:inherit}
   .back-btn:hover{color:var(--text)}
+  #diagPanel{position:fixed;bottom:0;left:0;right:0;max-height:130px;overflow:auto;
+    background:rgba(8,10,14,.95);border-top:1px solid var(--border);
+    font-family:'SF Mono',Monaco,Consolas,monospace;font-size:10px;color:#7dd3fc;
+    padding:6px 10px;z-index:999;line-height:1.5}
   .engine-badge{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
     padding:8px 12px;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:8px;margin:16px 0}
   .engine-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
@@ -200,10 +204,25 @@
   </div>
 </div>
 
+<div id="diagPanel"></div>
+
 <script>
 const CHUNK_SIZE = 64 * 1024;
 const HIGH_WATERMARK = 4 * 1024 * 1024;
 const LOW_WATERMARK = 512 * 1024;
+
+function logEvent(msg) {
+  const t = new Date().toLocaleTimeString();
+  const line = '[' + t + '] ' + msg;
+  console.log(line);
+  const panel = document.getElementById('diagPanel');
+  if (!panel) return;
+  const div = document.createElement('div');
+  div.textContent = line;
+  panel.appendChild(div);
+  while (panel.children.length > 30) panel.removeChild(panel.firstChild);
+  panel.scrollTop = panel.scrollHeight;
+}
 
 let selectedFiles = [];
 let peer = null;
@@ -301,6 +320,7 @@ function startSender() {
   document.getElementById('uploadBtn').disabled = true;
 
   peer = new Peer({
+    debug: 2,
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -309,25 +329,39 @@ function startSender() {
     }
   });
 
+  logEvent('Sender: PeerJS server = ' + (peer.options?.host || '0.peerjs.com'));
+
   peer.on('open', id => {
+    logEvent('Sender: Peer OPEN, id = ' + id);
     const url = window.location.origin + window.location.pathname + '#' + id;
     document.getElementById('shareUrl').value = url;
     document.getElementById('senderSharing').classList.remove('hidden');
   });
 
   peer.on('connection', conn => {
+    logEvent('Sender: Incoming connection from ' + conn.peer);
     if (!senderActive) { conn.close(); return; }
     currentConn = conn;
     handleReceiverConnection(conn);
   });
 
   peer.on('error', err => {
+    logEvent('Sender: PEER ERROR type=' + err.type + ' msg=' + err.message);
     console.error('Peer error:', err);
+  });
+
+  peer.on('disconnected', () => {
+    logEvent('Sender: Signaling connection DISCONNECTED');
+  });
+
+  peer.on('close', () => {
+    logEvent('Sender: Peer CLOSED');
   });
 }
 
 function handleReceiverConnection(conn) {
   conn.on('open', () => {
+    logEvent('Sender: DataConnection OPEN from ' + conn.peer);
     const status = document.querySelector('#senderSharing .status span');
     if (status) status.textContent = 'Receiver connected. Sending file info...';
 
@@ -339,6 +373,7 @@ function handleReceiverConnection(conn) {
 
   conn.on('data', data => {
     if (data.type === 'start') {
+      logEvent('Sender: Got START for ' + data.fileName + ' @' + data.offset);
       sendFile(conn, data.fileName, data.offset || 0);
     } else if (data.type === 'chunkAck' && senderAckHandler) {
       senderAckHandler(data);
@@ -346,6 +381,7 @@ function handleReceiverConnection(conn) {
   });
 
   conn.on('close', () => {
+    logEvent('Sender: DataConnection CLOSED');
     if (senderActive) {
       const status = document.querySelector('#senderSharing .status span');
       if (status) status.textContent = 'Receiver disconnected. Waiting for new connection...';
@@ -353,6 +389,7 @@ function handleReceiverConnection(conn) {
   });
 
   conn.on('error', err => {
+    logEvent('Sender: CONN ERROR ' + err.message);
     console.error('Conn error:', err);
   });
 }
@@ -747,7 +784,11 @@ function initReceiver(uploaderPeerID) {
   document.getElementById('senderView').classList.add('hidden');
   isSender = false;
 
+  logEvent('Receiver: target peer = ' + uploaderPeerID);
+  logEvent('Receiver: URL hash = "' + window.location.hash + '"');
+
   peer = new Peer({
+    debug: 2,
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -756,20 +797,25 @@ function initReceiver(uploaderPeerID) {
     }
   });
 
-  peer.on('open', () => {
+  logEvent('Receiver: PeerJS server = ' + (peer.options?.host || '0.peerjs.com'));
+
+  peer.on('open', id => {
     const statusEl = document.getElementById('receiverStatus');
     statusEl.textContent = 'Connecting to sender...';
+    logEvent('Receiver: Peer OPEN, id = ' + id + ' -> connecting to ' + uploaderPeerID);
 
     const conn = peer.connect(uploaderPeerID, { reliable: true });
     currentConn = conn;
 
     conn.on('open', () => {
+      logEvent('Receiver: DataConnection OPEN to ' + uploaderPeerID);
       statusEl.textContent = 'Connected. Waiting for file info...';
       conn.send({ type: 'requestInfo' });
     });
 
     conn.on('data', data => {
       if (data.type === 'info') {
+        logEvent('Receiver: Got INFO for ' + data.files.length + ' file(s)');
         handleReceiverInfo(data.files);
       } else if (data.type === 'chunk') {
         handleChunk(data);
@@ -777,18 +823,29 @@ function initReceiver(uploaderPeerID) {
     });
 
     conn.on('close', () => {
+      logEvent('Receiver: DataConnection CLOSED to ' + uploaderPeerID);
       if (writer && !writer.done) {
         receiverError('Connection lost. Sender may have closed their browser.');
       }
     });
 
     conn.on('error', err => {
+      logEvent('Receiver: CONN ERROR ' + err.message);
       receiverError('Connection error: ' + err.message);
     });
   });
 
   peer.on('error', err => {
+    logEvent('Receiver: PEER ERROR type=' + err.type + ' msg=' + err.message);
     receiverError('Failed to connect: ' + err.message);
+  });
+
+  peer.on('disconnected', () => {
+    logEvent('Receiver: Signaling connection DISCONNECTED');
+  });
+
+  peer.on('close', () => {
+    logEvent('Receiver: Peer CLOSED');
   });
 }
 
